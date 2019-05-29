@@ -24,7 +24,7 @@ def dat_reader(full_filepath: str) -> pd.DataFrame:
     df['RunID'] = file_re.group(2)
     return df
 
-class DF:
+class OppDF:
     """
         Class that handles the access and the filtering of the Opportunity dataset.
     """
