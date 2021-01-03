@@ -6,31 +6,40 @@ from tqdm import tqdm
 from typing import List
 from pathlib import Path
 
+
 def dat_reader(full_filepath: str) -> pd.DataFrame:
     basename = os.path.basename(full_filepath)
-    filename_pattern = '^S(\d)-(ADL\d|Drill).*'
+    filename_pattern = "^S(\d)-(ADL\d|Drill).*"
     file_re = re.match(pattern=filename_pattern, string=basename)
-    df =  pd.read_csv(full_filepath, sep=' ', header=None)
+    df = pd.read_csv(full_filepath, sep=" ", header=None)
     # Hack to search labels easier
-    df.rename({243:'Locomotion',
-           244:'HL_Activity',
-           245:'LL_Left_Arm',
-           246:'LL_Left_Arm_Object',
-           247:'LL_Right_Arm',
-           248:'LL_Right_Arm_Object',
-           249:'ML_Both_Arms'}, axis='columns', inplace=True)
-    df['file'] = basename
-    df['PID'] = file_re.group(1)
-    df['RunID'] = file_re.group(2)
+    df.rename(
+        {
+            243: "Locomotion",
+            244: "HL_Activity",
+            245: "LL_Left_Arm",
+            246: "LL_Left_Arm_Object",
+            247: "LL_Right_Arm",
+            248: "LL_Right_Arm_Object",
+            249: "ML_Both_Arms",
+        },
+        axis="columns",
+        inplace=True,
+    )
+    df["file"] = basename
+    df["PID"] = file_re.group(1)
+    df["RunID"] = file_re.group(2)
     return df
+
 
 class OppDF:
     """
         Class that handles the access and the filtering of the Opportunity dataset.
     """
-    DATA_PICKLE_NAME = 'data.pkl'
-    METADATA_PICKLE_NAME = 'metadata.pkl'
-    LABELS_PICKLE_NAME = 'labels.pkl'
+
+    DATA_PICKLE_NAME = "data.pkl"
+    METADATA_PICKLE_NAME = "metadata.pkl"
+    LABELS_PICKLE_NAME = "labels.pkl"
 
     def __init__(self):
         """
@@ -47,8 +56,8 @@ class OppDF:
             data_folder {str} -- The string of the path to the folder containing the Opportunity dat files.
             pickle_path {str} -- The string of the path to the folder that will contain the produced pickles.
         """
-        label_file = Path(data_folder) / 'label_legend.txt'
-        column_file = Path(data_folder) / 'column_names.txt'
+        label_file = Path(data_folder) / "label_legend.txt"
+        column_file = Path(data_folder) / "column_names.txt"
 
         self.df = self.df_handler(data_folder)
         self.labels = self.label_handler(label_file.resolve())
@@ -70,7 +79,7 @@ class OppDF:
         Returns:
             pd.DataFrame -- DataFrame containing the Opportunity dataset.
         """
-        data_files = Path(data_folder).glob('**/*.dat')
+        data_files = Path(data_folder).glob("**/*.dat")
         df_list = []
         for file in tqdm(data_files):
             temp_df = dat_reader(file.resolve())
@@ -89,12 +98,22 @@ class OppDF:
         """
         column_pattern = r"^(\d+)\s*-\s*([A-Za-z_]+)\s*-\s*([A-Za-z_ 1-9()]+)"
         label_list = []
-        with open(label_file,'r') as f:
+        with open(label_file, "r") as f:
             for line in f:
-                label_match = re.match(string = line.strip(), pattern = column_pattern)
+                label_match = re.match(string=line.strip(), pattern=column_pattern)
                 if label_match:
-                    label_list.append(pd.DataFrame(data = [[label_match.group(1), label_match.group(2), label_match.group(3)]],
-                                                   columns = ['Code', 'Class', 'Label']))
+                    label_list.append(
+                        pd.DataFrame(
+                            data=[
+                                [
+                                    label_match.group(1),
+                                    label_match.group(2),
+                                    label_match.group(3),
+                                ]
+                            ],
+                            columns=["Code", "Class", "Label"],
+                        )
+                    )
         return pd.concat(label_list)
 
     def metadata_handler(self, column_file: str) -> pd.DataFrame:
@@ -106,13 +125,23 @@ class OppDF:
             pd.DataFrame -- DataFrame containing the labels info.
         """
         column_pattern = r"^Column: (\d+) ([A-Za-z]+) ([A-Za-z\d^_-]*) ([A-Za-z]*)"
-        metadata = pd.DataFrame(data= [['Time','Time','Time']],columns = ['Sensor','Location','Signal'])
-        with open(column_file,'r') as f:
+        metadata = pd.DataFrame(
+            data=[["Time", "Time", "Time"]], columns=["Sensor", "Location", "Signal"]
+        )
+        with open(column_file, "r") as f:
             for line in f:
-                ptrn_match = re.match(string=line.strip(), pattern = column_pattern)
+                ptrn_match = re.match(string=line.strip(), pattern=column_pattern)
                 if ptrn_match:
-                    temp_df = pd.DataFrame(data = [[ptrn_match.group(2), ptrn_match.group(3), ptrn_match.group(4)]],
-                                        columns = ['Sensor','Location','Signal'])
+                    temp_df = pd.DataFrame(
+                        data=[
+                            [
+                                ptrn_match.group(2),
+                                ptrn_match.group(3),
+                                ptrn_match.group(4),
+                            ]
+                        ],
+                        columns=["Sensor", "Location", "Signal"],
+                    )
                     metadata = metadata.append(temp_df, ignore_index=True)
         return metadata
 
@@ -129,4 +158,21 @@ class OppDF:
         self.df = pd.read_pickle(data_pickle_path)
         self.metadata = pd.read_pickle(metadata_pickle_path)
         self.labels = pd.read_pickle(labels_pickle_path)
+
+        column_names = self.metadata.apply(
+            lambda x: x.Location + "_" + x.Signal, axis=1
+        )
+        column_names[0] = "Time"
+        res = {x: k for x, k in enumerate(column_names)}
+        self.df = self.df.rename(columns=res)
+        replace_dict = {}
+        for index, group in self.labels.groupby("Class"):
+            replace_dict[index] = {
+                int(ind): val for ind, val in zip(group["Code"], group["Label"])
+            }
+            replace_dict[index][0] = np.nan
+        for index, group in self.labels.groupby("Class"):
+            self.df[index] = self.df[index].replace(to_replace=replace_dict[index])
+
+    # def aggregate_signals(self):
 
